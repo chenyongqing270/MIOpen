@@ -362,6 +362,43 @@ pipeline {
                     }
                 }
 
+                stage('Hip Implicitgemm layouts Release') {
+                    agent{ label rocmnode("vega") }
+                    environment{
+                        cmd = """
+                            # check out MLIR
+                            cd ..
+                            git clone -b miopen-dialect https://github.com/whchung/llvm-project
+
+                            # make build directory
+                            cd llvm-project && mkdir -p build && cd build
+
+                            # config MLIR on ROCm, with MIOpen dialect
+                            cmake -G Ninja ../llvm \
+                              -DLLVM_ENABLE_PROJECTS="mlir" \
+                              -DCMAKE_BUILD_TYPE=Release \
+                              -DBUILD_SHARED_LIBS=OFF \
+                              -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                              -DLLVM_ENABLE_TERMINFO=OFF
+
+                            # build libMLIRMIOpen
+                            cmake --build . --target libMLIRMIOpen
+
+                            cd MIOpen
+                            ulimit -c unlimited
+                            rm -rf build
+                            mkdir build
+                            cd build
+                            CXX=/opt/rocm/llvm/bin/clang++ cmake -DBUILD_DEV=On -DCMAKE_BUILD_TYPE=release -DMIOPEN_GPU_SYNC=On .. 
+                            make -j test_conv_for_implicit_gemm_mlir
+                        """
+                    }
+                    steps{
+                        buildHipClangJob('/opt/rocm/llvm/bin/clang++', '', "",  image+'-hip-clang', "/usr/local", cmd)
+                    }
+                }
+
+
                 stage('Hip Fast Find Mode Release') {
                     agent{ label rocmnode("vega") }
                     environment{

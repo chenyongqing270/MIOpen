@@ -220,6 +220,9 @@ set( MIOpen_Source
     solver/conv_hip_implicit_gemm_v4r4.cpp
     solver/conv_hip_implicit_gemm_fwd_v4r4_xdlops_padded_gemm.cpp
     solver/conv_hip_implicit_gemm_fwd_v4r5_xdlops.cpp
+    solver/conv_hip_implicit_gemm_mlir_fwd.cpp
+    solver/conv_hip_implicit_gemm_mlir_bwd.cpp
+    solver/conv_hip_implicit_gemm_mlir_wrw.cpp
     solver/conv_hip_implicit_gemm_wrw_weights_v4r4.cpp
     solver/conv_hip_implicit_gemm_fwd_v4r4_xdlops.cpp
     solver/conv_hip_implicit_gemm_xdlops_common.cpp
@@ -627,6 +630,19 @@ if(NOT WIN32 AND NOT APPLE)
     if(LIBRT)
         MESSAGE(STATUS "Librt: " ${LIBRT})
         target_link_libraries(MIOpen PUBLIC ${LIBRT})
+    endif()
+endif()
+
+############################################################
+# MIOpen depends on libMLIRMIOpen for implicit gemm
+if(NOT WIN32 AND NOT APPLE)
+  find_library(LIBMLIRMIOPEN MLIRMIOpen)
+    if(LIBMLIRMIOPEN)
+      MESSAGE(STATUS "LibMLIRMIOpen: " ${LIBMLIRMIOPEN})
+      set(LIBMLIRMIOPEN "${LIBMLIRMIOPEN}")
+      target_link_libraries(MIOpen PRIVATE ${LIBMLIRMIOPEN})
+    else()
+      message(STATUS "LibMLIRMIOpen not found, no flexible layout support")
     endif()
 endif()
 
