@@ -948,6 +948,8 @@ ConvSolution ConvHipImplicitGemmBwdDataV1R1Xdlops::GetSolution(
         std::string(" -DCK_WORKAROUND_SWDEV_231101=") + std::to_string(WORKAROUND_SWDEV_231101) +
         ctx.general_compile_options;
 
+    construction_parameters.comp_options += " -mllvm -amdgpu-enable-global-sgpr-addr ";	
+
     result.invoker_factory = conv::MakeImplGemmDataInvokerFactory(ctx);
     result.construction_params.push_back(construction_parameters);
     return result;

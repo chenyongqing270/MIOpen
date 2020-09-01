@@ -329,6 +329,8 @@ static inline ConvSolution GetSolutionBase(const ConvolutionContext& ctx,
         }
     }
 
+    construction_parameters.comp_options += " -mllvm -amdgpu-enable-global-sgpr-addr ";
+
     result.construction_params.push_back(construction_parameters);
     const auto& dwDesc = ctx.conv_problem.GetWeights();
 
