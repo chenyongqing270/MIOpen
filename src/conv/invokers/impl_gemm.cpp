@@ -4,6 +4,7 @@
 #include <miopen/algorithm.hpp>
 #include <miopen/handle.hpp>
 #include <miopen/tensor_ops.hpp>
+#include <miopen/stringutils.hpp>
 
 #include <boost/any.hpp>
 
@@ -12,13 +13,36 @@ namespace conv {
 
 InvokerFactory MakeImplGemmDataInvokerFactory(const ConvolutionContext& ctx)
 {
+    MIOPEN_LOG_I2("ctx.direction.IsForward() =" << ctx.direction.IsForward());
     if(ctx.direction.IsForward())
     {
-        return [](const std::vector<Kernel>& kernels) {
+        if( ctx.GetStream().GetDeviceName() != "gfx906")
+            return [](const std::vector<Kernel>& kernels) {
+                MIOPEN_LOG_I2("kernels[0].name" << kernels[0].name);
+                return [=](const Handle& handle, const boost::any& primitive_parameters) {
+                    const auto data_ctx = boost::any_cast<conv::DataInvokeParams>(primitive_parameters);
+                    const auto& tensors = data_ctx.tensors;
+                    MIOPEN_LOG_I2("tensors.in=" << tensors.in 
+                        << " tensors.w=" << tensors.w 
+                        << " tensors.out=" << tensors.out);
+                    MIOPEN_LOG_I2("tensors.inDesc=" << tensors.inDesc.ToString());
+                    MIOPEN_LOG_I2("tensors.wDesc=" << tensors.wDesc.ToString());
+                    MIOPEN_LOG_I2("tensors.outDesc=" << tensors.outDesc.ToString());
+                        handle.Run(kernels[0])(tensors.in, tensors.w, tensors.out);
+                };
+            };
+        else
+            return [](const std::vector<Kernel>& kernels) {
+            MIOPEN_LOG_I2("kernels[0].name" << kernels[0].name);
             return [=](const Handle& handle, const boost::any& primitive_parameters) {
                 const auto data_ctx = boost::any_cast<conv::DataInvokeParams>(primitive_parameters);
                 const auto& tensors = data_ctx.tensors;
-                handle.Run(kernels[0])(tensors.in, tensors.w, tensors.out);
+                MIOPEN_LOG_I2("tensors.in=" << tensors.in 
+                    << " tensors.w=" << tensors.w 
+                    << " tensors.out=" << tensors.out);
+                MIOPEN_LOG_I2("tensors.inDesc=" << tensors.inDesc.ToString());
+                MIOPEN_LOG_I2("tensors.wDesc=" << tensors.wDesc.ToString());
+                MIOPEN_LOG_I2("tensors.outDesc=" << tensors.outDesc.ToString());
             };
         };
     }

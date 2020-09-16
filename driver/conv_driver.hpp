@@ -1741,6 +1741,13 @@ int ConvDriver<Tgpu, Tref>::RunForwardGpuFind(const bool is_transform)
         PrintForwardTime(kernel_total_time, kernel_first_time);
     }
 
+    if(workspace_dev)
+    {
+        std::vector<float> w_space( (workspace_dev->GetSize())/4);
+        workspace_dev->FromGPU(GetStream(), w_space.data());
+        dumpBufferToFile<float>("dump_workspace_dev_fwd_gpu.bin", w_space.data(), w_space.size());
+    }
+
     return rc;
 }
 
@@ -2148,6 +2155,13 @@ int ConvDriver<Tgpu, Tref>::RunBackwardDataGpuFind()
         std::cout << "MIOpen Backward Data Conv. " << AlgorithmSolutionToString(solution)
                   << std::endl;
         PrintBackwardDataTime(kernel_total_time, kernel_first_time);
+    }
+    
+    if(workspace_dev)
+    {
+        std::vector<float> w_space(workspace_dev->GetSize() / 4);
+        workspace_dev->FromGPU(GetStream(), w_space.data());
+        dumpBufferToFile<float>("dump_workspace_dev_bwd_gpu.bin", w_space.data(), w_space.size());
     }
 
     din_dev->FromGPU(GetStream(), din.data());

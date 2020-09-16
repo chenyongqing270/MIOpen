@@ -386,7 +386,7 @@ InvokerFactory MakeWinogradInvokerFactory(
             lda,ldb,ldc,batch_count,strideA,strideB,
             strideC,alpha,beta,params.in_data_type};
 
-        gemm_conv_factory = [=](std::vector<Kernel>) {
+        gemm_conv_factory = [=](const std::vector<Kernel> &) {
 
             return [=](const Handle& handle, const boost::any& ctx) {
 #if(MIOPEN_USE_ROCBLAS)
@@ -413,13 +413,11 @@ InvokerFactory MakeWinogradInvokerFactory(
 
     }
 
-    return [=](std::vector<Kernel> kernels) {
+    return [=](const std::vector<Kernel>& kernels) {
         
-        std::vector<Kernel> transform_kernels = isXdlops 
-            ? std::vector<Kernel>{kernels[0], kernels[1], kernels[3]} 
-        : std::vector<Kernel>{kernels[0], kernels[1], kernels[2]};
+        const std::vector<Kernel> transform_kernels = std::vector<Kernel>{kernels[0], kernels[1], kernels[2]};
 
-        std::vector<Kernel> conv_kernels = isXdlops ? std::vector<Kernel>{kernels[2]} : std::vector<Kernel>{};
+        const std::vector<Kernel> conv_kernels = isXdlops ? std::vector<Kernel>{kernels[3]} : std::vector<Kernel>{};
 
         auto gemm_conv_invoker = gemm_conv_factory(conv_kernels);
 
@@ -429,6 +427,9 @@ InvokerFactory MakeWinogradInvokerFactory(
             Data_t workSpace = data_ctx.workSpace;
             auto workSpaceSize = data_ctx.workSpaceSize;
             float total_time    = 0;
+            auto wino_in_ptr = static_cast<void*>( reinterpret_cast<char*>(workSpace) + wino_in_offset);
+            auto wino_w_ptr = static_cast<void*>( reinterpret_cast<char*>(workSpace) + wino_wei_offset);
+            auto wino_out_ptr = static_cast<void*>( reinterpret_cast<char*>(workSpace) + wino_out_offset);
 
             for(int i = 0, cur=0; i < 4; i++)
             {
@@ -439,10 +440,13 @@ InvokerFactory MakeWinogradInvokerFactory(
                     //xdlops_conv use tensors.in, tensors.w, tensors.out
                     ConvDataTensors xdlops_tensor = ConvDataTensors(
                         ConvFwdTensors{
-                            zeroDesc, reinterpret_cast<char*>(workSpace) + wino_in_offset,
-                            zeroDesc, reinterpret_cast<char*>(workSpace) + wino_wei_offset,
-                            zeroDesc, reinterpret_cast<char*>(workSpace) + wino_out_offset}
+                            zeroDesc, wino_in_ptr,
+                            zeroDesc, wino_w_ptr,
+                            zeroDesc, wino_out_ptr}
                     );
+                    MIOPEN_LOG_I2("wino_in_ptr=" << wino_in_ptr
+                        << " wino_w_ptr=" << wino_w_ptr
+                        << " wino_out_ptr=" << wino_out_ptr);
                     const auto invoke_params = conv::DataInvokeParams{xdlops_tensor, workSpace, workSpaceSize};
 
                     gemm_conv_invoker(handle, invoke_params);
@@ -453,12 +457,11 @@ InvokerFactory MakeWinogradInvokerFactory(
                     const auto kernel        = handle.Run(transform_kernels[cur++]);
                     const BuffInfo* d_buf    = nullptr;
                     const BuffInfo* o_buf    = nullptr;
-                    Data_t buff_out_addr     = nullptr;
+                    void *  buff_out_addr     = nullptr;
 
                     auto const_buff_in_adr  = tensors.in;
-                    auto buff_in_adr        = workSpace;
+                    auto buff_in_adr        = wino_out_ptr;
                     bool const_input        = false;
-                    size_t buff_in_addr_offset = 0, buff_out_addr_offset = 0;
                     kernel_name = kernel.GetName();
 
                     if(i==0) // Input
@@ -466,9 +469,7 @@ InvokerFactory MakeWinogradInvokerFactory(
                         d_buf               = &in_buff;
                         o_buf               = &(wino_in.buff_info);
                         const_buff_in_adr   = tensors.in;
-                        buff_in_addr_offset = 0;
-                        buff_out_addr        = workSpace;
-                        buff_out_addr_offset = wino_in_offset;
+                        buff_out_addr        = wino_in_ptr;
                         const_input         = true;
                     }
                     else if(i==1) // filter
@@ -476,27 +477,20 @@ InvokerFactory MakeWinogradInvokerFactory(
                         d_buf                = &weights_buff;
                         o_buf                = &(wino_wei.buff_info);
                         const_buff_in_adr    = tensors.w;
-                        buff_in_addr_offset = 0;
-                        buff_out_addr         = workSpace;
-                        buff_out_addr_offset = wino_wei_offset;
+                        buff_out_addr         = wino_w_ptr;
                         const_input          = true;
                     }
                     else if (i==3)
                     { //Output
                         d_buf               = &(wino_out.buff_info);
                         o_buf               = &(out_buff);
-                        buff_in_adr         = workSpace;
-                        buff_in_addr_offset = wino_out_offset;
+                        buff_in_adr         = wino_out_ptr;
                         buff_out_addr        = tensors.out;
-                        buff_out_addr_offset = 0;
                         const_input          = false;
                     }
 
-                    const auto input_ptr = static_cast<const void*>(
-                        static_cast<const char*>(const_input ? const_buff_in_adr : buff_in_adr) +
-                        buff_in_addr_offset);
-                    const auto output_ptr =
-                        static_cast<void*>(static_cast<char*>(buff_out_addr) + buff_out_addr_offset);
+                    const auto input_ptr = static_cast<const void*>(const_input ? const_buff_in_adr : buff_in_adr);
+                    const auto output_ptr = buff_out_addr;
                     // clang-format off
                     MIOPEN_LOG_I2(" N=" << N << " G=" << group_cnt << " C=" << C << " H=" << H << " W=" << W << " K=" << K
                         << " n_groups=" << n_groups << " R=" << R << " S=" << S
@@ -659,26 +653,26 @@ GetTransformedConvContext(const ConvolutionContext& ctx) const
             ctx, ConvWinoBuffType::Weight);
 
     TensorDescriptor in, wei, out;
-        miopenSet4dTensorDescriptor(&in,
-            ctx.in_data_type,
-            wino_in.buff_info.size.nk,
-            wino_in.buff_info.size.c * batch_count,
-            wino_in.buff_info.size.h,
-            wino_in.buff_info.size.w);
+    miopenSet4dTensorDescriptor(&in,
+        ctx.in_data_type,
+        wino_in.buff_info.size.nk,
+        wino_in.buff_info.size.c * batch_count,
+        wino_in.buff_info.size.h,
+        wino_in.buff_info.size.w);
 
-        miopenSet4dTensorDescriptor(&wei,
-            ctx.weights_data_type,
-            wino_wei.buff_info.size.nk * batch_count,
-            wino_wei.buff_info.size.c * batch_count,
-            wino_wei.buff_info.size.h,
-            wino_wei.buff_info.size.w);
+    miopenSet4dTensorDescriptor(&wei,
+        ctx.weights_data_type,
+        wino_wei.buff_info.size.nk * batch_count,
+        wino_wei.buff_info.size.c * batch_count,
+        wino_wei.buff_info.size.h,
+        wino_wei.buff_info.size.w);
 
-        miopenSet4dTensorDescriptor(&out,
-            ctx.out_data_type,
-            wino_out.buff_info.size.nk,
-            wino_out.buff_info.size.c * batch_count,
-            wino_out.buff_info.size.h,
-            wino_out.buff_info.size.w);
+    miopenSet4dTensorDescriptor(&out,
+        ctx.out_data_type,
+        wino_out.buff_info.size.nk,
+        wino_out.buff_info.size.c * batch_count,
+        wino_out.buff_info.size.h,
+        wino_out.buff_info.size.w);
 
     //default conv_desc.
     //pads{0,0}, stride{1,1}, dilation {1, 1}
@@ -739,9 +733,13 @@ ConvSolution ConvMPBidirectWinograd_xdlops<WinoDataH, WinoFilterH, WinoDataW, Wi
 
         std::tie(gemm_g, gemm_m, gemm_n, gemm_k_total) = ConvHipImplicitGemmForwardV4R4Xdlops::CalculateGemmSize(xdlops_conv_ctx);
         MIOPEN_LOG_I2(" gemm_g=" << gemm_g << " gemm_m=" << gemm_m << " gemm_n=" << gemm_n << " gemm_k_total=" << gemm_k_total);
+        MIOPEN_LOG_I2("xdlops_conv_ctx:" << xdlops_conv_ctx);
+        MIOPEN_LOG_I2("xdlops_conv_ctx.in=" << xdlops_conv_ctx.conv_problem.GetIn().ToString());
+        MIOPEN_LOG_I2("xdlops_conv_ctx.w=" << xdlops_conv_ctx.conv_problem.GetWeights().ToString());
+        MIOPEN_LOG_I2("xdlops_conv_ctx.out=" << xdlops_conv_ctx.conv_problem.GetOut().ToString());
     }
     ConvSolution xdlops_conv 
-        = ConvHipImplicitGemmForwardV4R4Xdlops().GetSolution(xdlops_conv_ctx, config);
+        = ConvHipImplicitGemmForwardV4R4Xdlops{}.GetSolution(xdlops_conv_ctx, config);
 
     ConvSolution result;
     result.workspce_sz = wino_transform.workspce_sz + xdlops_conv.workspce_sz;
@@ -750,8 +748,12 @@ ConvSolution ConvMPBidirectWinograd_xdlops<WinoDataH, WinoFilterH, WinoDataW, Wi
 
     result.construction_params.push_back(wino_transform.construction_params[0]);
     result.construction_params.push_back(wino_transform.construction_params[1]);
-    result.construction_params.push_back(xdlops_conv.construction_params[0]);
     result.construction_params.push_back(wino_transform.construction_params[2]);
+    const std::string name = ctx.GetStream().GetDeviceName();
+    if( name == "gfx906")
+        result.construction_params.push_back(wino_transform.construction_params[2]);
+    else
+        result.construction_params.push_back(xdlops_conv.construction_params[0]);
     
     result.invoker_factory
         = MakeWinogradInvokerFactory<WinoDataH, WinoFilterH, WinoDataW, WinoFilterW>(
