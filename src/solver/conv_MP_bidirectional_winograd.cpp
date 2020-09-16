@@ -652,27 +652,28 @@ GetTransformedConvContext(const ConvolutionContext& ctx) const
         wino_wei = GetWinoBuffer<WinoDataH, WinoFilterH, WinoDataW, WinoFilterW>(
             ctx, ConvWinoBuffType::Weight);
 
+    // GNCHW -> GCNHW
     TensorDescriptor in, wei, out;
     miopenSet4dTensorDescriptor(&in,
         ctx.in_data_type,
-        wino_in.buff_info.size.nk,
+        1,
         wino_in.buff_info.size.c * batch_count,
-        wino_in.buff_info.size.h,
-        wino_in.buff_info.size.w);
+        1,
+        wino_in.buff_info.size.w * wino_in.buff_info.size.h * wino_in.buff_info.size.nk);
 
     miopenSet4dTensorDescriptor(&wei,
         ctx.weights_data_type,
-        wino_wei.buff_info.size.nk * batch_count,
         wino_wei.buff_info.size.c * batch_count,
+        wino_wei.buff_info.size.nk * batch_count,
         wino_wei.buff_info.size.h,
         wino_wei.buff_info.size.w);
 
     miopenSet4dTensorDescriptor(&out,
         ctx.out_data_type,
-        wino_out.buff_info.size.nk,
+        1,
         wino_out.buff_info.size.c * batch_count,
-        wino_out.buff_info.size.h,
-        wino_out.buff_info.size.w);
+        1,
+        wino_out.buff_info.size.w * wino_out.buff_info.size.h * wino_out.buff_info.size.nk);
 
     //default conv_desc.
     //pads{0,0}, stride{1,1}, dilation {1, 1}
