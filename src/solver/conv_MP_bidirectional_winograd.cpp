@@ -663,8 +663,8 @@ GetTransformedConvContext(const ConvolutionContext& ctx) const
 
     miopenSet4dTensorDescriptor(&wei,
         ctx.weights_data_type,
-        wino_wei.buff_info.size.c * batch_count,
         wino_wei.buff_info.size.nk * batch_count,
+        wino_wei.buff_info.size.c,
         wino_wei.buff_info.size.h,
         wino_wei.buff_info.size.w);
 
@@ -684,8 +684,28 @@ GetTransformedConvContext(const ConvolutionContext& ctx) const
 
     ConvolutionContext transformed_ctx(in, wei, out, conv_desc, dir, 0);
     transformed_ctx.ExecutionContext::operator=(ExecutionContext(ctx));
-    transformed_ctx.SetupFloats();
+    
+    DEFINE_WORKSPACE_OFFSETS(
+        wino_in.buff_info.total_byte_size,
+        wino_wei.buff_info.total_byte_size,
+        wino_out.buff_info.total_byte_size)
+    auto transform_workSpaceSize = 
+        wino_in.buff_info.total_byte_size
+        + wino_wei.buff_info.total_byte_size
+        + wino_out.buff_info.total_byte_size;
+    auto transform_workSpace = static_cast<char*>(ctx.GetBufs().workSpace);
+    auto gemm_workSpaceSize = ctx.GetBufs().workSpaceSize - transform_workSpaceSize;
+    auto gemm_workSpace = (transform_workSpace) + transform_workSpaceSize;
 
+    ConvolutionUserBuffers buff(gemm_workSpace, gemm_workSpaceSize);
+
+    buff.SetFwd(
+        transform_workSpace + wino_in_offset,
+        transform_workSpace + wino_wei_offset,
+        transform_workSpace + wino_out_offset);
+
+    transformed_ctx.SetBufs(buff);
+    transformed_ctx.SetupFloats();
     return transformed_ctx;
 }
 
@@ -747,6 +767,13 @@ ConvSolution ConvMPBidirectWinograd_xdlops<WinoDataH, WinoFilterH, WinoDataW, Wi
  
     assert(xdlops_conv.construction_params.size() == 1);
 
+    //change transform layout
+    // GCNHW -> GNCHW
+    std::ostringstream additional_options_wei;
+    GenerateClangDefsym(additional_options_wei, "XDLOPS_CONV_GEMM", 1);
+    wino_transform.construction_params[1].comp_options += additional_options_wei.str();
+
+
     result.construction_params.push_back(wino_transform.construction_params[0]);
     result.construction_params.push_back(wino_transform.construction_params[1]);
     result.construction_params.push_back(wino_transform.construction_params[2]);
@@ -770,14 +797,7 @@ PerformanceImplicitGemmForwardV4R4Xdlops
 ConvMPBidirectWinograd_xdlops<WinoDataH, WinoFilterH, WinoDataW, WinoFilterW>::Search(
     const ConvolutionContext& ctx) const
 {
-    if(ctx.direction.IsForward())
-    {
-        return GenericSearchFwd(*this, ctx);
-    }
-    else
-    {
-        return GenericSearchBwd(*this, ctx);
-    }
+   return ConvHipImplicitGemmForwardV4R4Xdlops().Search(GetTransformedConvContext(ctx));
 }
 
 
