@@ -1095,32 +1095,63 @@ struct XdlopsGemm_t
                 (wave_id * mfma_type.wave_size + blk_id * mfma_type.num_threads_blk) *
                     mfma_type.group_size;
 
-            auto reg_c = p_c_thread.n;
-
-#pragma unroll
-            for(index_t i = 0; i < GetNumBlks(); ++i)
             {
-#pragma unroll
-                for(index_t j = 0; j < mfma_type.num_groups_blk; ++j)
-                {
-                    index_t reg_group_off =
-                        (i * mfma_type.num_groups_blk + j) * mfma_type.group_size;
+                auto reg_c = p_c_thread.c.x.l.n;
 
-                    // store to lds
-                    for(index_t k = 0; k < mfma_type.group_size; k++)
-                        blk_shfl_buff[blk_td + k * mfma_type.num_threads_blk] =
-                            reg_c[reg_group_off + k];
+                for(index_t i = 0; i < mfma_type.num_output_blks; ++i)
+                {
+                    for(index_t j = 0; j < mfma_type.num_groups_blk; ++j)
+                    {
+                        index_t reg_group_off =
+                            (i * mfma_type.num_groups_blk + j) * mfma_type.group_size;
+
+                        // store to lds
+                        for(index_t k = 0; k < mfma_type.group_size; k++)
+                            blk_shfl_buff[blk_td + k * mfma_type.num_threads_blk] =
+                                reg_c[reg_group_off + k];
 
 // load from lds
 #if 1
-                    auto blk_shfl_buff_vec =
-                        reinterpret_cast<float4_t*>(blk_shfl_buff + blk_td * mfma_type.group_size);
-                    auto reg_c_vec = reinterpret_cast<float4_t*>(reg_c + reg_group_off);
-                    reg_c_vec[0] = blk_shfl_buff_vec[0];
+                        auto blk_shfl_buff_vec = reinterpret_cast<float4_t*>(
+                            blk_shfl_buff + blk_td * mfma_type.group_size);
+                        auto reg_c_vec = reinterpret_cast<float4_t*>(reg_c + reg_group_off);
+                        reg_c_vec[0]   = blk_shfl_buff_vec[0];
 #else
-                    for(index_t k                = 0; k < mfma_type.group_size; k++)
-                        reg_c[reg_group_off + k] = blk_shfl_buff[blk_td * mfma_type.group_size + k];
+                        for(index_t k = 0; k < mfma_type.group_size; k++)
+                            reg_c[reg_group_off + k] =
+                                blk_shfl_buff[blk_td * mfma_type.group_size + k];
 #endif
+                    }
+                }
+            }
+
+            {
+                auto reg_c = p_c_thread.c.y.l.n;
+
+                for(index_t i = 0; i < mfma_type.num_output_blks; ++i)
+                {
+                    for(index_t j = 0; j < mfma_type.num_groups_blk; ++j)
+                    {
+                        index_t reg_group_off =
+                            (i * mfma_type.num_groups_blk + j) * mfma_type.group_size;
+
+                        // store to lds
+                        for(index_t k = 0; k < mfma_type.group_size; k++)
+                            blk_shfl_buff[blk_td + k * mfma_type.num_threads_blk] =
+                                reg_c[reg_group_off + k];
+
+// load from lds
+#if 1
+                        auto blk_shfl_buff_vec = reinterpret_cast<float4_t*>(
+                            blk_shfl_buff + blk_td * mfma_type.group_size);
+                        auto reg_c_vec = reinterpret_cast<float4_t*>(reg_c + reg_group_off);
+                        reg_c_vec[0]   = blk_shfl_buff_vec[0];
+#else
+                        for(index_t k = 0; k < mfma_type.group_size; k++)
+                            reg_c[reg_group_off + k] =
+                                blk_shfl_buff[blk_td * mfma_type.group_size + k];
+#endif
+                    }
                 }
             }
 

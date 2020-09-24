@@ -46,6 +46,18 @@ struct c_vec32_4_t
     }
 };
 
+struct c_vec32_t
+{
+    union VecType
+    {
+        struct
+        {
+            float32_t x;
+        } s;
+        float n[32];
+    } l;
+};
+
 struct c_vec32_2_t
 {
     union VecType
@@ -55,6 +67,11 @@ struct c_vec32_2_t
             float32_t x;
             float32_t y;
         } s;
+        struct
+        {
+            c_vec32_t x;
+            c_vec32_t y;
+        } c;
         float n[64];
     } l;
 
