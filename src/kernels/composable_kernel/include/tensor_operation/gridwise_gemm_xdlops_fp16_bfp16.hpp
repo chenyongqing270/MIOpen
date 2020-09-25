@@ -917,9 +917,10 @@ struct GridwiseBatchGemmXdlops_gkmkpack_gknkpack_gmn_v2
         // preload data into LDS
         {
             a_blockwise_copy.Run(p_a_global, p_a_block);
-            b_blockwise_copy.Run(p_b_global, p_b_block);
+            //b_blockwise_copy.Run(p_b_global, p_b_block);
         }
 
+#if 0
         constexpr auto blockwise_a_copy_src_step = Sequence<0, KPerBlock, 0, 0>{};
         constexpr auto blockwise_b_copy_src_step = Sequence<0, KPerBlock, 0, 0>{};
 
@@ -955,6 +956,7 @@ struct GridwiseBatchGemmXdlops_gkmkpack_gknkpack_gmn_v2
             a_blockwise_copy.RunStoreThreadBuffer(p_a_thread_buffer, p_a_block);
             b_blockwise_copy.RunStoreThreadBuffer(p_b_thread_buffer, p_b_block);
         }
+#endif
 
         // tail
         {
